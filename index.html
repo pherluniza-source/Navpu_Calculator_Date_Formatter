@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Date Formatter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        max-width: 1000px;
+        margin: 20px auto;
+        padding: 20px;
+    }
+    h3 { margin-top: 32px; }
+    textarea {
+        width: 100%;
+        height: 220px;
+        padding: 10px;
+        margin-bottom: 10px;
+        box-sizing: border-box;
+        font-family: Consolas, monospace;
+    }
+    #output { background: #f5f5f5; margin-top: 20px; }
+    button {
+        padding: 10px 20px;
+        cursor: pointer;
+        margin-right: 8px;
+    }
+    .box {
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 16px;
+    }
+    .status { margin-left: 8px; color: #2e7d32; }
+    .error { color: #c62828; }
+    #fileLog { margin-top: 12px; font-size: 14px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<h2>Date Formatter (MM/DD/YYYY)</h2>
+
+<h3>Option 1: Upload an Excel file</h3>
+<div class="box">
+    <p style="margin-top:0">
+        Converts every date in <b>all sheets</b> to MM/DD/YYYY and gives you back a new .xlsx file.
+        Column widths, fonts, borders and number formats are kept exactly as in your file, and the
+        date cells are set to Text format. Your original file is not changed.
+    </p>
+    <input type="file" id="fileInput" accept=".xlsx,.xlsm">
+    <button id="convertBtn" onclick="convertFile()">Convert &amp; Download</button>
+    <span id="fileStatus" class="status"></span>
+    <div id="fileLog"></div>
+</div>
+
+<h3>Option 2: Paste dates</h3>
+<textarea id="input" placeholder="Paste dates here..."></textarea>
+<button onclick="convertDates()">Convert</button>
+<button onclick="copyOutput()">Copy to clipboard</button>
+<span id="status" class="status"></span>
+<textarea id="output" readonly placeholder="Converted dates will appear here..."></textarea>
+
+<script>
+// ---------- Shared helpers ----------
+const DATE_RE = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/;
+const pad2 = n => String(n).padStart(2, '0');
+
+function formatDateString(text) {
+    const m = String(text).match(DATE_RE);
+    if (!m) return null;
+    return `${pad2(m[1])}/${pad2(m[2])}/${m[3]}`;
+}
+
+// ---------- Option 2: paste mode ----------
+function convertDates() {
+    const input = document.getElementById('input').value.trim();
+    const formatted = input
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line !== '')
+        .map(line => formatDateString(line) || line)
+        .join('\n');
+    document.getElementById('output').value = formatted;
+    document.getElementById('status').textContent = '';
+}
+
+async function copyOutput() {
+    const output = document.getElementById('output');
+    const status = document.getElementById('status');
+    if (!output.value) {
+        status.className = 'status error';
+        status.textContent = 'Nothing to copy yet. Click Convert first.';
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(output.value);
+    } catch (e) {
+        output.select();
+        document.execCommand('copy');
+    }
+    status.className = 'status';
+    status.textContent = 'Copied! Paste into Excel.';
+}
+
+// ---------- Option 1: workbook mode ----------
+// Converts every date cell in every sheet. Only the value and number format of
+// date cells are touched, so fonts, borders and column widths stay as they were.
+function convertWorkbook(wb, onSheet) {
+    let total = 0;
+    const lines = [];
+    wb.eachSheet(ws => {
+        let count = 0;
+        ws.eachRow({ includeEmpty: false }, row => {
+            row.eachCell({ includeEmpty: false }, cell => {
+                let out = null;
+                const v = cell.value;
+                if (typeof v === 'string') {
+                    out = formatDateString(v);                 // text like "10/1/2020"
+                } else if (v instanceof Date) {
+                    out = `${pad2(v.getUTCMonth() + 1)}/${pad2(v.getUTCDate())}/${v.getUTCFullYear()}`; // real Excel date
+                }
+                if (out !== null) {
+                    cell.value = out;
+                    // Give this cell its own style copy. ExcelJS shares one style object between cells
+                    // that look alike, so editing numFmt in place would also change the neighbouring columns.
+                    cell.style = Object.assign({}, cell.style, { numFmt: '@' });   // Text, same as your target file
+                    count++;
+                }
+            });
+        });
+        total += count;
+        lines.push(`${ws.name}: ${count} dates converted`);
+        if (onSheet) onSheet(ws.name);
+    });
+    return { total, lines };
+}
+
+async function convertFile() {
+    const file = document.getElementById('fileInput').files[0];
+    const status = document.getElementById('fileStatus');
+    const log = document.getElementById('fileLog');
+    const btn = document.getElementById('convertBtn');
+    log.textContent = '';
+
+    if (!file) {
+        status.className = 'status error';
+        status.textContent = 'Please choose a file first.';
+        return;
+    }
+    if (typeof ExcelJS === 'undefined') {
+        status.className = 'status error';
+        status.textContent = 'Excel library failed to load. Check your internet connection.';
+        return;
+    }
+
+    btn.disabled = true;
+    status.className = 'status';
+    status.textContent = 'Reading file...';
+
+    try {
+        const buffer = await file.arrayBuffer();
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(buffer);
+
+        status.textContent = 'Converting dates...';
+        await new Promise(r => setTimeout(r, 30));   // let the UI repaint
+        const { total, lines } = convertWorkbook(wb);
+
+        status.textContent = 'Building file...';
+        await new Promise(r => setTimeout(r, 30));
+        const out = await wb.xlsx.writeBuffer();
+
+        const newName = file.name.replace(/\.[^.]+$/, '') + '_converted.xlsx';
+        const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = newName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+
+        status.textContent = `Done! ${total.toLocaleString()} dates converted. Downloaded ${newName}`;
+        log.textContent = lines.join('\n');
+    } catch (err) {
+        console.error(err);
+        status.className = 'status error';
+        status.textContent = 'Could not process that file: ' + err.message;
+    } finally {
+        btn.disabled = false;
+    }
+}
+</script>
+
+</body>
+</html>
