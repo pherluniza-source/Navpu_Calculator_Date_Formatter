@@ -13,15 +13,36 @@ NAVPu calculation exports mix padded dates (`10/01/2020`) and unpadded dates (`1
 - Fonts, borders, column widths, and number formats are preserved
 - Shows how many dates were converted in each sheet
 - Paste box for converting a quick list of dates, with a **Copy to clipboard** button for pasting into Excel
+- Login screen with username and password (passwords are stored as SHA-256 hashes, with a 30-second lockout after 5 wrong attempts)
 - Runs entirely in your browser. Files are never uploaded anywhere
 
 ## Usage
 
 1. Open `index.html` in your browser (an internet connection is needed to load the ExcelJS library).
-2. Under **Option 1**, choose your Excel file and click **Convert & Download**.
-3. Open the downloaded `<filename>_converted.xlsx`. Your original file is not changed.
+2. Sign in. The default account is `admin` / `Navpu@2026`. **Change this before sharing** (see Login below).
+3. Under **Option 1**, choose your Excel file and click **Convert & Download**.
+4. Open the downloaded `<filename>_converted.xlsx`. Your original file is not changed.
 
 For a quick list of dates, use **Option 2**: paste the dates, click **Convert**, then **Copy to clipboard** and paste into Excel.
+
+## Login
+
+Accounts are listed in the `USERS` object near the bottom of `index.html`. Each entry is a username and a SHA-256 hash, not the password itself.
+
+To add or change a user:
+
+1. Open `index.html` in your browser and press **F12** to open the console.
+2. Run `makeHash('username', 'password')`. It prints a line like `'username': '3f9a...'`.
+3. Paste that line into `USERS` in `index.html` (usernames are lowercase), and remove the default `admin` line.
+
+```js
+const USERS = {
+    'admin': '5d7e...',
+    'maria': '3f9a...'
+};
+```
+
+> **Security note:** this login runs in the browser, so it keeps casual users out but is not real security. Anyone who can view the page source could bypass it. If the page is hosted publicly and the data is sensitive, protect it with server-side access control instead, such as a private repository, Cloudflare Access, or Netlify password protection.
 
 ## What gets converted
 
